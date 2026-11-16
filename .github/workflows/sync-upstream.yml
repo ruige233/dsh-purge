@@ -1,0 +1,45 @@
+name: sync-upstream
+
+# fork 定时跟上游同步：把 master rebase 到 kingcharleslzy-ai/dsh-purge 的 master 上。
+# 为什么用 rebase 而不是 fast-forward：本文件自己就是 master 上的一个提交，
+# 上游前进后必须把它垫到最新上游之上；--force-with-lease 保证只覆盖自己这一层。
+
+on:
+  schedule:
+    - cron: "23 */2 * * *"   # 每 2 小时的第 23 分钟（UTC）
+  workflow_dispatch:        # 允许在 Actions 页面手动 Run workflow
+
+permissions:
+  contents: write           # 默认可能是只读，必须显式给
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: 检查上游是否有新提交
+        id: check
+        run: |
+          git remote add upstream https://github.com/kingcharleslzy-ai/dsh-purge.git
+          git fetch --prune upstream master
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: rebase 到上游 master 并推送
+        if: steps.check.outputs.up_to_date == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rebase upstream/master
+          git push --force-with-lease origin master
